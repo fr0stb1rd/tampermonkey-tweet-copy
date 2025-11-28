@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Tweet Copy
 // @namespace    https://github.com/tizee-tampermonkey-scripts/tampermonkey-tweet-copy
-// @version      1.2.1
+// @version      1.2.2
 // @description  Adds a "Copy" button to each tweet that copies the tweet text along with its URL and shows a check mark animation upon success, preserving link URLs and styling.
 // @author       tizee
 // @downloadURL  https://raw.githubusercontent.com/tizee-tampermonkey-scripts/tampermonkey-tweet-copy/refs/heads/main/user.js
@@ -115,9 +115,9 @@
                 tweetUrl = linkEl.href;
             }
 
-            // Append tweet URL to the content.
-            const copyHTML = `${tweetHTML}<br><br><strong>Tweet URL:</strong> <a href="${tweetUrl}">${tweetUrl}</a>`;
-            const copyText = `${tweetPlainText}\n\nTweet URL: ${tweetUrl}`;
+            // Append tweet URL to the content and wrap in markdown backticks.
+            const copyHTML = `<pre><code>${tweetHTML}</code></pre><br><br><strong>Tweet URL:</strong> <a href="${tweetUrl}">${tweetUrl}</a>`;
+            const copyText = `\`\`\`\n${tweetPlainText}\n\`\`\`\n\nTweet URL: ${tweetUrl}`;
 
             // Create Blob items for HTML and plain text.
             const blobHTML = new Blob([copyHTML], { type: 'text/html' });

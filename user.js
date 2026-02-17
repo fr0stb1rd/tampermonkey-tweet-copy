@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         X Tweet Copy
 // @namespace    https://github.com/tizee-tampermonkey-scripts/tampermonkey-tweet-copy
-// @version      1.2.2
-// @description  Adds a "Copy" button to each tweet that copies the tweet text along with its URL and shows a check mark animation upon success, preserving link URLs and styling.
+// @version      1.2.3
+// @description  Adds a "Copy" button to each tweet and article that copies the content along with its URL and shows a check mark animation upon success, preserving link URLs and styling.
 // @author       tizee
 // @downloadURL  https://raw.githubusercontent.com/tizee-tampermonkey-scripts/tampermonkey-tweet-copy/refs/heads/main/user.js
 // @updateURL    https://raw.githubusercontent.com/tizee-tampermonkey-scripts/tampermonkey-tweet-copy/refs/heads/main/user.js
@@ -63,6 +63,19 @@
     }
 
     /**
+     * Checks if the tweet container is actually a long article.
+     * @param {HTMLElement} container - The tweet/article container.
+     * @returns {boolean} True if it's a long article.
+     */
+    function isArticle(container) {
+        if (!container) return false;
+        // Must have both title and content elements
+        const hasTitle = container.querySelector('[data-testid="twitter-article-title"]') !== null;
+        const hasContent = container.querySelector('[data-testid="longformRichTextComponent"] > [data-contents="true"]') !== null;
+        return hasTitle && hasContent;
+    }
+
+    /**
      * Creates and appends a copy button to the button group element.
      * The button, when clicked, copies the tweet content with styling and tweet URL.
      * @param {HTMLElement} groupEl - The container for tweet action buttons.
@@ -73,6 +86,9 @@
         // Retrieve the tweet container for this group.
         const tweetContainer = findTweetContainer(groupEl);
         if (!tweetContainer) return;
+
+        // Check if it's a long article
+        const isLongArticle = isArticle(tweetContainer);
 
         // Avoid adding duplicate copy buttons.
         if (groupEl.querySelector('.tm-copy-button')) return;
@@ -86,8 +102,93 @@
             // Prevent event propagation.
             e.stopPropagation();
 
+            // Debug: log container info
+            console.debug('[Tweet Copy] isLongArticle:', isLongArticle);
+            console.debug('[Tweet Copy] tweetContainer:', tweetContainer);
+
+            // Handle article content
+            if (isLongArticle) {
+                // Extract title
+                const titleEl = tweetContainer.querySelector('[data-testid="twitter-article-title"]');
+                const title = titleEl ? titleEl.innerText : '';
+                console.debug('[Tweet Copy] titleEl:', titleEl, 'title:', title);
+
+                // Extract content - traverse child elements to preserve formatting
+                const contentEl = tweetContainer.querySelector('[data-testid="longformRichTextComponent"] > [data-contents="true"]');
+                console.debug('[Tweet Copy] contentEl:', contentEl);
+
+                if (contentEl) {
+                    const contentClone = contentEl.cloneNode(true);
+                    // Replace each anchor's visible text with its full URL.
+                    contentClone.querySelectorAll('a').forEach(a => {
+                        if (a.href) {
+                            a.textContent = a.href;
+                        }
+                    });
+
+                    // Get HTML content as-is
+                    const contentHTML = contentClone.innerHTML;
+
+                    // Extract text from each child element to preserve structure
+                    const paragraphs = [];
+                    contentClone.childNodes.forEach(node => {
+                        if (node.nodeType === Node.ELEMENT_NODE) {
+                            const text = node.innerText.trim();
+                            if (text) {
+                                paragraphs.push(text);
+                            }
+                        } else if (node.nodeType === Node.TEXT_NODE) {
+                            const text = node.textContent.trim();
+                            if (text) {
+                                paragraphs.push(text);
+                            }
+                        }
+                    });
+                    const contentText = paragraphs.join('\n\n');
+
+                    console.debug('[Tweet Copy] paragraphs:', paragraphs);
+                    console.debug('[Tweet Copy] contentText:', contentText);
+
+                    // Get article URL
+                    let articleUrl = '';
+                    const linkEl = tweetContainer.querySelector('a[href*="/status/"]');
+                    if (linkEl && linkEl.href) {
+                        articleUrl = linkEl.href;
+                    }
+
+                    const copyHTML = `<strong>${title}</strong><br><br><pre><code>${contentHTML}</code></pre><br><br><strong>Article URL:</strong> <a href="${articleUrl}">${articleUrl}</a>`;
+                    const copyText = `${title}\n\n\`\`\`\n${contentText}\n\`\`\`\n\nArticle URL: ${articleUrl}`;
+
+                    // Create Blob items for HTML and plain text.
+                    const blobHTML = new Blob([copyHTML], { type: 'text/html' });
+                    const blobText = new Blob([copyText], { type: 'text/plain' });
+
+                    // Create a ClipboardItem with both formats.
+                    const clipboardItem = new ClipboardItem({
+                        'text/html': blobHTML,
+                        'text/plain': blobText,
+                    });
+
+                    navigator.clipboard.write([clipboardItem])
+                        .then(() => {
+                            copyBtn.innerHTML = CHECKMARK_SVG;
+                            copyBtn.classList.add('tm-copy-checkmark');
+                            setTimeout(() => {
+                                copyBtn.innerHTML = ORIGINAL_SVG;
+                                copyBtn.classList.remove('tm-copy-checkmark');
+                            }, 1500);
+                            console.debug('Article text copied successfully.');
+                        })
+                        .catch(err => console.error('Failed to copy article text:', err));
+                    return;
+                }
+            }
+
+            // Handle regular tweet content
             // Extract tweet text elements.
             const textElements = tweetContainer.querySelectorAll('[data-testid="tweetText"]');
+
+            console.debug('[Tweet Copy] textElements:', textElements);
 
             // Process each tweet text element to preserve styling and update links.
             const tweetContent = Array.from(textElements).map(el => {
@@ -139,7 +240,7 @@
                         copyBtn.innerHTML = ORIGINAL_SVG;
                         copyBtn.classList.remove('tm-copy-checkmark');
                     }, 1500);
-                    console.log('Tweet text copied successfully.');
+                    console.debug('Tweet text copied successfully.');
                 })
                 .catch(err => console.error('Failed to copy tweet text:', err));
         });
@@ -165,7 +266,7 @@
             mutation.addedNodes.forEach(node => {
                 if (node.nodeType !== Node.ELEMENT_NODE) return;
 
-                // Gather all elements that match the group selector.
+                // Gather all elements that match the group selector (tweets and articles).
                 let groupEls = node.querySelectorAll('div[role="group"]');
                 // If the node itself is a group element, include it as well.
                 if (node.matches && node.matches('div[role="group"]')) {

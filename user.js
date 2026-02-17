@@ -4,6 +4,7 @@
 // @version      1.2.3
 // @description  Adds a "Copy" button to each tweet and article that copies the content along with its URL and shows a check mark animation upon success, preserving link URLs and styling.
 // @author       tizee
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=x.com
 // @downloadURL  https://raw.githubusercontent.com/tizee-tampermonkey-scripts/tampermonkey-tweet-copy/refs/heads/main/user.js
 // @updateURL    https://raw.githubusercontent.com/tizee-tampermonkey-scripts/tampermonkey-tweet-copy/refs/heads/main/user.js
 // @match        https://x.com/*

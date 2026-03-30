@@ -1,14 +1,17 @@
 // ==UserScript==
-// @name         X Tweet Copy
-// @namespace    https://github.com/tizee-tampermonkey-scripts/tampermonkey-tweet-copy
+// @name         Twitter Tweet Copy
+// @namespace    https://github.com/fr0stb1rd/tampermonkey-tweet-copy
 // @version      1.2.3
 // @description  Adds a "Copy" button to each tweet and article that copies the content along with its URL and shows a check mark animation upon success, preserving link URLs and styling.
-// @author       tizee
+// @author       fr0stb1rd
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=x.com
-// @downloadURL  https://raw.githubusercontent.com/tizee-tampermonkey-scripts/tampermonkey-tweet-copy/refs/heads/main/user.js
-// @updateURL    https://raw.githubusercontent.com/tizee-tampermonkey-scripts/tampermonkey-tweet-copy/refs/heads/main/user.js
+// @downloadURL  https://raw.githubusercontent.com/fr0stb1rd/tampermonkey-tweet-copy/refs/heads/main/user.js
+// @updateURL    https://raw.githubusercontent.com/fr0stb1rd/tampermonkey-tweet-copy/refs/heads/main/user.js
 // @match        https://x.com/*
 // @grant        GM_addStyle
+// @grant        GM_xmlhttpRequest
+// @connect      t.co
+// @connect      *
 // @run-at       document-end
 // @license      MIT
 // ==/UserScript==
@@ -52,6 +55,70 @@
             100% { transform: scale(1); opacity: 1; }
         }
     `);
+
+    /**
+     * Asynchronously (in parallel) resolves t.co shorter URLs.
+     * @param {string} text - The input text containing t.co links.
+     * @returns {Promise<string>} The text with resolved full URLs.
+     */
+    async function resolveTcoLinksAsync(text) {
+        const tcoRegex = /https:\/\/t\.co\/[a-zA-Z0-9]+/g;
+        const urls = text.match(tcoRegex) || [];
+        const uniqueUrls = [...new Set(urls)];
+
+        if (uniqueUrls.length === 0) return text;
+
+        const promises = uniqueUrls.map(url => {
+            return new Promise((resolve) => {
+                if (typeof GM_xmlhttpRequest !== 'undefined') {
+                    GM_xmlhttpRequest({
+                        method: 'GET',
+                        url: url,
+                        headers: {
+                            'User-Agent': navigator.userAgent,
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+                        },
+                        onload: function (response) {
+                            let final = response.finalUrl || url;
+
+                            // Handle 301/302 redirects if Tampermonkey doesn't automatically follow them
+                            if ((response.status >= 300 && response.status < 400) && final === url) {
+                                const locMatch = response.responseHeaders.match(/location:\s*([^\r\n]+)/i);
+                                if (locMatch && locMatch[1]) {
+                                    final = locMatch[1].trim();
+                                }
+                            }
+                            // Handle Meta Refresh redirects (rare t.co edge case)
+                            else if (response.status === 200 && response.responseText && response.responseText.includes('URL=')) {
+                                const metaMatch = response.responseText.match(/URL=['"]?([^'">]+)['"]?/i);
+                                if (metaMatch && metaMatch[1]) {
+                                    final = metaMatch[1].trim();
+                                }
+                            }
+                            resolve({ url, finalUrl: final });
+                        },
+                        onerror: function (err) {
+                            resolve({ url, finalUrl: url });
+                        }
+                    });
+                } else {
+                    fetch(url, { redirect: 'follow' })
+                        .then(res => resolve({ url, finalUrl: res.url }))
+                        .catch(err => resolve({ url, finalUrl: url }));
+                }
+            });
+        });
+
+        const results = await Promise.all(promises);
+
+        let resolvedText = text;
+        for (const { url, finalUrl } of results) {
+            if (url !== finalUrl) {
+                resolvedText = resolvedText.split(url).join(finalUrl);
+            }
+        }
+        return resolvedText;
+    }
 
     /**
      * Finds the tweet container (article element with data-testid="tweet")
@@ -99,30 +166,24 @@
         copyBtn.className = 'tm-copy-button';
         copyBtn.innerHTML = ORIGINAL_SVG;
 
-        copyBtn.addEventListener('click', (e) => {
+        copyBtn.addEventListener('click', async (e) => {
             // Prevent event propagation.
             e.stopPropagation();
-
-            // Debug: log container info
-            console.debug('[Tweet Copy] isLongArticle:', isLongArticle);
-            console.debug('[Tweet Copy] tweetContainer:', tweetContainer);
 
             // Handle article content
             if (isLongArticle) {
                 // Extract title
                 const titleEl = tweetContainer.querySelector('[data-testid="twitter-article-title"]');
                 const title = titleEl ? titleEl.innerText : '';
-                console.debug('[Tweet Copy] titleEl:', titleEl, 'title:', title);
 
                 // Extract content - traverse child elements to preserve formatting
                 const contentEl = tweetContainer.querySelector('[data-testid="longformRichTextComponent"] > [data-contents="true"]');
-                console.debug('[Tweet Copy] contentEl:', contentEl);
 
                 if (contentEl) {
                     const contentClone = contentEl.cloneNode(true);
-                    // Replace each anchor's visible text with its full URL.
+                    // Replace each anchor's visible text with its full URL (only for t.co links to preserve hashtags/mentions)
                     contentClone.querySelectorAll('a').forEach(a => {
-                        if (a.href) {
+                        if (a.href && a.href.includes('t.co/')) {
                             a.textContent = a.href;
                         }
                     });
@@ -147,9 +208,6 @@
                     });
                     const contentText = paragraphs.join('\n\n');
 
-                    console.debug('[Tweet Copy] paragraphs:', paragraphs);
-                    console.debug('[Tweet Copy] contentText:', contentText);
-
                     // Get article URL
                     let articleUrl = '';
                     const linkEl = tweetContainer.querySelector('a[href*="/status/"]');
@@ -157,8 +215,13 @@
                         articleUrl = linkEl.href;
                     }
 
-                    const copyHTML = `<strong>${title}</strong><br><br><pre><code>${contentHTML}</code></pre><br><br><strong>Article URL:</strong> <a href="${articleUrl}">${articleUrl}</a>`;
-                    const copyText = `${title}\n\n\`\`\`\n${contentText}\n\`\`\`\n\nArticle URL: ${articleUrl}`;
+                    let copyHTML = `<strong>${title}</strong><br><br><pre><code>${contentHTML}</code></pre><br><br><strong>Article URL:</strong> <a href="${articleUrl}">${articleUrl}</a>`;
+                    let copyText = `${title}\n\n\`\`\`\n${contentText}\n\`\`\`\n\nArticle URL: ${articleUrl}`;
+
+                    // Asynchronously resolve t.co links in the texts
+                    copyBtn.innerHTML = '⏳';
+                    copyHTML = await resolveTcoLinksAsync(copyHTML);
+                    copyText = await resolveTcoLinksAsync(copyText);
 
                     // Create Blob items for HTML and plain text.
                     const blobHTML = new Blob([copyHTML], { type: 'text/html' });
@@ -178,7 +241,6 @@
                                 copyBtn.innerHTML = ORIGINAL_SVG;
                                 copyBtn.classList.remove('tm-copy-checkmark');
                             }, 1500);
-                            console.debug('Article text copied successfully.');
                         })
                         .catch(err => console.error('Failed to copy article text:', err));
                     return;
@@ -189,14 +251,12 @@
             // Extract tweet text elements.
             const textElements = tweetContainer.querySelectorAll('[data-testid="tweetText"]');
 
-            console.debug('[Tweet Copy] textElements:', textElements);
-
             // Process each tweet text element to preserve styling and update links.
             const tweetContent = Array.from(textElements).map(el => {
                 const clone = el.cloneNode(true);
-                // Replace each anchor's visible text with its full URL.
+                // Replace each anchor's visible text with its full URL (only for t.co links to preserve hashtags/mentions)
                 clone.querySelectorAll('a').forEach(a => {
-                    if (a.href) {
+                    if (a.href && a.href.includes('t.co/')) {
                         a.textContent = a.href;
                     }
                 });
@@ -218,8 +278,13 @@
             }
 
             // Append tweet URL to the content and wrap in markdown backticks.
-            const copyHTML = `<pre><code>${tweetHTML}</code></pre><br><br><strong>Tweet URL:</strong> <a href="${tweetUrl}">${tweetUrl}</a>`;
-            const copyText = `\`\`\`\n${tweetPlainText}\n\`\`\`\n\nTweet URL: ${tweetUrl}`;
+            let copyHTML = `<pre><code>${tweetHTML}</code></pre><br><br><strong>Tweet URL:</strong> <a href="${tweetUrl}">${tweetUrl}</a>`;
+            let copyText = `\`\`\`\n${tweetPlainText}\n\`\`\`\n\nTweet URL: ${tweetUrl}`;
+
+            // Asynchronously resolve t.co links in the texts
+            copyBtn.innerHTML = '⏳';
+            copyHTML = await resolveTcoLinksAsync(copyHTML);
+            copyText = await resolveTcoLinksAsync(copyText);
 
             // Create Blob items for HTML and plain text.
             const blobHTML = new Blob([copyHTML], { type: 'text/html' });
@@ -241,7 +306,6 @@
                         copyBtn.innerHTML = ORIGINAL_SVG;
                         copyBtn.classList.remove('tm-copy-checkmark');
                     }, 1500);
-                    console.debug('Tweet text copied successfully.');
                 })
                 .catch(err => console.error('Failed to copy tweet text:', err));
         });

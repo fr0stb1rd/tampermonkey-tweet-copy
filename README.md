@@ -1,5 +1,7 @@
 # Twitter Tweet & Article Copy
 
+[![Install from GreasyFork](https://img.shields.io/badge/GreasyFork-Install-orange)](https://greasyfork.org/tr/scripts/571795-twitter-tweet-copy)
+
 A Tampermonkey/Violentmonkey userscript that adds a "Copy" button to each tweet and article on X (formerly Twitter). It allows you to seamlessly copy the tweet or article text, resolve shortened `t.co` links to their original destinations, and copy the content along with its URL. It displays a clean check mark animation upon a successful copy.
 
 ## 🔥 Key Differences from the Original Repository
@@ -20,7 +22,8 @@ This repository (`fr0stb1rd/tampermonkey-tweet-copy`) is an extended and improve
 
 ## Installation
 1. Install a userscript manager like [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/).
-2. Click the following link to install the script: [Install X Tweet Copy](https://raw.githubusercontent.com/fr0stb1rd/tampermonkey-tweet-copy/refs/heads/main/user.js).
+2. Install the script via **GreasyFork**: [Install from GreasyFork](https://greasyfork.org/tr/scripts/571795-twitter-tweet-copy)
+3. *Alternatively*, click the following link to install directly from GitHub: [Install X Tweet Copy](https://raw.githubusercontent.com/fr0stb1rd/tampermonkey-tweet-copy/refs/heads/main/user.js).
 
 ## Usage
 1. Navigate to any tweet or article on X (https://x.com/).
